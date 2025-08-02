@@ -5,9 +5,9 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <deque>
 #include <functional>
 #include <future>
-#include <list>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -50,7 +50,10 @@ namespace glz
 
                      // Notify that work is finished
                      --working;
-                     done_cv.notify_all();
+                     lock.lock();
+                     if (queue.empty() && (working == 0)) {
+                        done_cv.notify_one();
+                     }
                   }
                }
             });
@@ -152,7 +155,7 @@ namespace glz
       {
          std::unique_lock lock(mtx);
          if (queue.empty() && (working == 0)) return;
-         done_cv.wait(lock, [&] { return queue.empty() && (working == 0); });
+         done_cv.wait(lock);
       }
 
       size_t size() const { return threads.size(); }
@@ -172,7 +175,7 @@ namespace glz
       {
          // Close the queue and finish all the remaining work
          {
-            std::unique_lock lock(mtx);
+            std::lock_guard lock(mtx);
             closed = true;
             work_cv.notify_all();
          }

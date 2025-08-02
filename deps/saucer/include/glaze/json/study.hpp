@@ -106,7 +106,7 @@ namespace glz
 
          std::size_t size() const { return max_index; }
 
-         [[nodiscard]] expected<State, error_code> generate(const size_t i) noexcept
+         [[nodiscard]] expected<State, error_code> generate(const size_t i)
          {
             size_t deconst_index = i;
             for (auto& param_set : param_sets) {
@@ -149,7 +149,7 @@ namespace glz
             param_set param_set;
 
             error_ctx pe{};
-            bool found = detail::seek_impl(
+            bool found = seek(
                [&](auto&& val) {
                   if constexpr (std::is_assignable_v<basic, std::decay_t<decltype(val)>>) {
                      param_set.param_ptr = &val;
@@ -341,7 +341,7 @@ namespace glz
             random_param result{};
 
             error_ctx pe{};
-            bool found = detail::seek_impl(
+            bool found = seek(
                [&](auto&& val) {
                   if constexpr (std::is_assignable_v<basic, std::decay_t<decltype(val)>>) {
                      result.param_ptr = &val;

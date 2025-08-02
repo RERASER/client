@@ -49,7 +49,7 @@ namespace glz::rpc
 namespace glz::rpc
 {
    using id_t = std::variant<glz::json_t::null_t, std::string_view, std::int64_t>;
-   static constexpr std::string_view supported_version{"2.0"};
+   inline constexpr std::string_view supported_version{"2.0"};
 
    struct error final
    {
@@ -158,9 +158,7 @@ namespace glz::rpc
       template <class T>
       concept method_type = requires(T) {
          T::name_v;
-         {
-            std::same_as<decltype(T::name_v), std::string_view>
-         };
+         { std::same_as<decltype(T::name_v), std::string_view> };
          typename T::params_t;
          typename T::result_t;
       };
@@ -178,9 +176,8 @@ namespace glz::rpc
       using result_t = typename Method::result_t;
       using request_t = rpc::request_t<params_t>;
       using response_t = rpc::response_t<result_t>;
-      std::function<expected<result_t, rpc::error>(const params_t&)> callback{[](const auto&) {
-         return glz::unexpected{rpc::error{rpc::error_e::internal, "Not implemented"}};
-      }};
+      std::function<expected<result_t, rpc::error>(const params_t&)> callback{
+         [](const auto&) { return glz::unexpected{rpc::error{rpc::error_e::internal, "Not implemented"}}; }};
    };
 
    template <concepts::method_type Method>
@@ -198,7 +195,7 @@ namespace glz::rpc
    namespace detail
    {
       template <string_literal name, class... Method>
-      inline constexpr void set_callback(glz::tuplet::tuple<Method...>& methods, const auto& callback)
+      inline constexpr void set_callback(glz::tuple<Method...>& methods, const auto& callback)
       {
          constexpr bool method_found = ((Method::name_v == name) || ...);
          static_assert(method_found, "Method not settable in given tuple.");
@@ -257,7 +254,7 @@ namespace glz::rpc
       };
 
       template <class Map, string_literal Name, class... Method>
-      auto get_request_map(glz::tuplet::tuple<Method...>& methods) -> Map&
+      auto get_request_map(glz::tuple<Method...>& methods) -> Map&
       {
          constexpr bool method_found = ((Method::name_v == Name) || ...);
          static_assert(method_found, "Method not declared in client.");
@@ -284,7 +281,7 @@ namespace glz::rpc
    {
       using raw_response_t = response_t<glz::raw_json>;
 
-      glz::tuplet::tuple<server_method_t<Method>...> methods{};
+      glz::tuple<server_method_t<Method>...> methods{};
 
       template <string_literal name>
       constexpr void on(const auto& callback) // std::function<expected<result_t, rpc::error>(params_t const&)>
@@ -359,7 +356,7 @@ namespace glz::rpc
             if (req.method != meth_t::name_v) {
                return false;
             }
-            auto const& params_request{glz::read_json<typename meth_t::request_t>(json_request)};
+            const auto& params_request{glz::read_json<typename meth_t::request_t>(json_request)};
             if (params_request.has_value()) {
                expected<typename meth_t::result_t, rpc::error> result{
                   std::invoke(method.callback, params_request->params)};
@@ -411,7 +408,7 @@ namespace glz::rpc
    template <concepts::method_type... Method>
    struct client
    {
-      glz::tuplet::tuple<client_method_t<Method>...> methods{};
+      glz::tuple<client_method_t<Method>...> methods{};
 
       rpc::error call(std::string_view json_response)
       {

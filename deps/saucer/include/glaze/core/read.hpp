@@ -11,83 +11,68 @@
 
 namespace glz
 {
-   template <opts Opts, bool Padded = false>
-   auto read_iterators(is_context auto&& ctx, contiguous auto&& buffer) noexcept
+   template <auto Opts, bool Padded = false>
+   auto read_iterators(contiguous auto&& buffer) noexcept
    {
       static_assert(sizeof(decltype(*buffer.data())) == 1);
 
       auto it = reinterpret_cast<const char*>(buffer.data());
       auto end = reinterpret_cast<const char*>(buffer.data()); // to be incremented
 
-      if (buffer.empty()) [[unlikely]] {
-         ctx.error = error_code::no_read_input;
-         return std::pair{it, end};
-      }
-
-      using Buffer = std::remove_cvref_t<decltype(buffer)>;
-      if constexpr (is_specialization_v<Buffer, std::basic_string> ||
-                    is_specialization_v<Buffer, std::basic_string_view> || span<Buffer>) {
-         if constexpr (Padded) {
-            end += buffer.size() - padding_bytes;
-         }
-         else {
-            end += buffer.size();
-         }
+      if constexpr (Padded) {
+         end += buffer.size() - padding_bytes;
       }
       else {
-         // if not a std::string, std::string_view, or span, check that the last character is a null character
-         end += buffer.size() - 1;
-         if constexpr (Padded) {
-            end -= padding_bytes;
-         }
-         if (*end != '\0') {
-            ctx.error = error_code::data_must_be_null_terminated;
-         }
+         end += buffer.size();
       }
 
       return std::pair{it, end};
    }
 
-   template <opts Opts, class T>
-      requires read_supported<Opts.format, T>
-   [[nodiscard]] error_ctx read(T& value, contiguous auto&& buffer, is_context auto&& ctx) noexcept
+   template <auto Opts, class T>
+      requires read_supported<T, Opts.format>
+   [[nodiscard]] error_ctx read(T& value, contiguous auto&& buffer, is_context auto&& ctx)
    {
       static_assert(sizeof(decltype(*buffer.data())) == 1);
       using Buffer = std::remove_reference_t<decltype(buffer)>;
 
-      if (buffer.empty()) [[unlikely]] {
-         ctx.error = error_code::no_read_input;
-         return {ctx.error, 0, ctx.includer_error};
+      if constexpr (Opts.format != NDJSON) {
+         if (buffer.empty()) [[unlikely]] {
+            ctx.error = error_code::no_read_input;
+            return {ctx.error, ctx.custom_error_message, 0, ctx.includer_error};
+         }
       }
 
-      constexpr bool use_padded = resizable<Buffer> && non_const_buffer<Buffer> && !Opts.disable_padding;
+      constexpr bool use_padded = resizable<Buffer> && non_const_buffer<Buffer> && !check_disable_padding(Opts);
 
       if constexpr (use_padded) {
          // Pad the buffer for SWAR
          buffer.resize(buffer.size() + padding_bytes);
       }
 
-      auto [it, end] = read_iterators<Opts, use_padded>(ctx, buffer);
+      auto [it, end] = read_iterators<Opts, use_padded>(buffer);
       auto start = it;
       if (bool(ctx.error)) [[unlikely]] {
          goto finish;
       }
 
       if constexpr (use_padded) {
-         detail::read<Opts.format>::template op<opt_true<Opts, &opts::is_padded>>(value, ctx, it, end);
+         parse<Opts.format>::template op<is_padded_on<Opts>()>(value, ctx, it, end);
       }
       else {
-         detail::read<Opts.format>::template op<opt_false<Opts, &opts::is_padded>>(value, ctx, it, end);
+         parse<Opts.format>::template op<is_padded_off<Opts>()>(value, ctx, it, end);
       }
 
       if (bool(ctx.error)) [[unlikely]] {
          goto finish;
       }
 
-      if constexpr (Opts.force_conformance) {
-         // Trailing whitespace is not allowed
+      // The JSON RFC 8259 defines: JSON-text = ws value ws
+      // So, trailing whitespace is permitted and sometimes we want to
+      // validate this, even though this memory will not affect Glaze.
+      if constexpr (check_validate_trailing_whitespace(Opts)) {
          if (it < end) {
-            detail::skip_ws<Opts>(ctx, it, end);
+            skip_ws<Opts>(ctx, it, end);
             if (bool(ctx.error)) [[unlikely]] {
                goto finish;
             }
@@ -98,17 +83,32 @@ namespace glz
       }
 
    finish:
+      // We don't do depth validation for partial reading
+      if constexpr (check_partial_read(Opts)) {
+         if (ctx.error == error_code::partial_read_complete) [[likely]] {
+            ctx.error = error_code::none;
+         }
+         else if (ctx.error == error_code::end_reached && ctx.indentation_level == 0) {
+            ctx.error = error_code::none;
+         }
+      }
+      else {
+         if (ctx.error == error_code::end_reached && ctx.indentation_level == 0) {
+            ctx.error = error_code::none;
+         }
+      }
+
       if constexpr (use_padded) {
          // Restore the original buffer state
          buffer.resize(buffer.size() - padding_bytes);
       }
 
-      return {ctx.error, size_t(it - start), ctx.includer_error};
+      return {ctx.error, ctx.custom_error_message, size_t(it - start), ctx.includer_error};
    }
 
-   template <opts Opts, class T>
-      requires read_supported<Opts.format, T>
-   [[nodiscard]] error_ctx read(T& value, contiguous auto&& buffer) noexcept
+   template <auto Opts, class T>
+      requires read_supported<T, Opts.format>
+   [[nodiscard]] error_ctx read(T& value, contiguous auto&& buffer)
    {
       context ctx{};
       return read<Opts>(value, buffer, ctx);
@@ -117,21 +117,24 @@ namespace glz
    template <class T>
    concept c_style_char_buffer = std::convertible_to<std::remove_cvref_t<T>, std::string_view> && !has_data<T>;
 
+   template <class T>
+   concept is_buffer = c_style_char_buffer<T> || contiguous<T>;
+
    // for char array input
-   template <opts Opts, class T, c_style_char_buffer Buffer>
-      requires read_supported<Opts.format, T>
-   [[nodiscard]] error_ctx read(T& value, Buffer&& buffer, auto&& ctx) noexcept
+   template <auto Opts, class T, c_style_char_buffer Buffer>
+      requires read_supported<T, Opts.format>
+   [[nodiscard]] error_ctx read(T& value, Buffer&& buffer, auto&& ctx)
    {
       const auto str = std::string_view{std::forward<Buffer>(buffer)};
       if (str.empty()) {
-         return {error_code::no_read_input, 0};
+         return {error_code::no_read_input};
       }
       return read<Opts>(value, str, ctx);
    }
 
-   template <opts Opts, class T, c_style_char_buffer Buffer>
-      requires read_supported<Opts.format, T>
-   [[nodiscard]] error_ctx read(T& value, Buffer&& buffer) noexcept
+   template <auto Opts, class T, c_style_char_buffer Buffer>
+      requires read_supported<T, Opts.format>
+   [[nodiscard]] error_ctx read(T& value, Buffer&& buffer)
    {
       context ctx{};
       return read<Opts>(value, std::forward<Buffer>(buffer), ctx);

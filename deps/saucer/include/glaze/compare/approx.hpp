@@ -4,21 +4,22 @@
 #pragma once
 
 #include "glaze/core/common.hpp"
+#include "glaze/core/reflect.hpp"
 
 namespace glz
 {
    // Test that two meta objects are equal, with epsilon support for floating point values
    struct approx_equal_to final
    {
-      template <detail::glaze_object_t T>
+      template <glaze_object_t T>
       constexpr bool operator()(T&& lhs, T&& rhs) noexcept
       {
-         constexpr auto N = glz::tuple_size_v<meta_t<T>>;
+         constexpr auto N = reflect<T>::size;
 
          bool equal = true;
-         for_each_short_circuit<N>([&](auto I) {
-            auto& l = detail::get_member(lhs, get<1>(get<I>(meta_v<T>)));
-            auto& r = detail::get_member(rhs, get<1>(get<I>(meta_v<T>)));
+         for_each_short_circuit<N>([&]<auto I>() {
+            auto& l = get_member(lhs, get<I>(reflect<T>::values));
+            auto& r = get_member(rhs, get<I>(reflect<T>::values));
             using V = std::decay_t<decltype(l)>;
             if constexpr (std::floating_point<V> && requires { meta<std::decay_t<T>>::compare_epsilon; }) {
                if (std::abs(l - r) >= meta<std::decay_t<T>>::compare_epsilon) {

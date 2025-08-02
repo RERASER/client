@@ -2,6 +2,7 @@
 #include "loader/component_loader.hpp"
 
 #include "d3d9_proxy/interface_ex.hpp"
+#include "wasapi_proxy/mmdevice_enumerator.hpp"
 
 #include "custom_resolution.hpp"
 
@@ -156,6 +157,13 @@ namespace iidx::custom_resolution
 			if (IsEqualCLSID(rclsid, __uuidof(MMDeviceEnumerator)) && IsEqualIID(riid, __uuidof(IMMDeviceEnumerator)))
 			{
 				IMMDeviceEnumerator* enumerator = nullptr;
+				auto hr = CoCreateInstance(rclsid, pUnkOuter, dwClsContext, riid, ppv);
+				if (SUCCEEDED(hr))
+				{
+					enumerator = reinterpret_cast<IMMDeviceEnumerator*>(*ppv);
+					*ppv = new mmdevice_enumerator_proxy(enumerator);
+				}
+				return hr;
 			}
 			else
 			{

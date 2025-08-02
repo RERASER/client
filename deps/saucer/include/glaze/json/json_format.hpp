@@ -25,7 +25,7 @@ namespace glz::detail
       Comment = '/'
    };
 
-   constexpr std::array<json_type, 256> json_types = [] {
+   inline constexpr std::array<json_type, 256> json_types = [] {
       std::array<json_type, 256> t{};
       using enum json_type;
       t['"'] = String;
@@ -65,8 +65,8 @@ namespace glz::detail
       }
    };
 
-   template <opts Opts>
-      requires(Opts.is_padded)
+   template <auto Opts>
+      requires(check_is_padded(Opts))
    sv read_json_string(auto&& it, auto&& end) noexcept
    {
       auto start = it;
@@ -96,8 +96,8 @@ namespace glz::detail
       return {};
    }
 
-   template <opts Opts>
-      requires(!Opts.is_padded)
+   template <auto Opts>
+      requires(!check_is_padded(Opts))
    sv read_json_string(auto&& it, auto&& end) noexcept
    {
       auto start = it;
@@ -178,11 +178,19 @@ namespace glz::detail
       return {};
    }
 
-   inline sv read_json_number(auto&& it) noexcept
+   template <bool null_terminated>
+   GLZ_ALWAYS_INLINE sv read_json_number(auto&& it, auto&& end) noexcept
    {
       auto start = it;
-      while (numeric_table[*it]) {
-         ++it;
+      if constexpr (null_terminated) {
+         while (numeric_table[uint8_t(*it)]) {
+            ++it;
+         }
+      }
+      else {
+         while ((it < end) && numeric_table[uint8_t(*it)]) {
+            ++it;
+         }
       }
       return {start, size_t(it - start)};
    }

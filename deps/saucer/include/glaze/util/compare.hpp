@@ -97,46 +97,184 @@ namespace glz
    }
 
    template <uint64_t Count, class Char>
-   inline bool compare(const Char* lhs, const Char* rhs) noexcept
+   GLZ_ALWAYS_INLINE bool compare(const Char* lhs, const Char* rhs) noexcept
    {
       if constexpr (Count > 8) {
-         return internal_compare(lhs, rhs, Count);
+         return 0 == std::memcmp(lhs, rhs, Count);
+         // return internal_compare(lhs, rhs, Count);
       }
       else if constexpr (Count == 8) {
-         uint64_t v[2];
-         std::memcpy(v, lhs, Count);
-         std::memcpy(v + 1, rhs, Count);
-         return v[0] == v[1];
+         uint64_t l, r;
+         std::memcpy(&l, lhs, 8);
+         std::memcpy(&r, rhs, 8);
+         return l == r;
       }
-      else if constexpr (Count > 4) {
-         uint64_t v[2]{}; // must default initialize
-         std::memcpy(v, lhs, Count);
-         std::memcpy(v + 1, rhs, Count);
-         return v[0] == v[1];
+      else if constexpr (Count == 7) {
+         uint32_t l, r;
+         std::memcpy(&l, lhs, 4);
+         std::memcpy(&r, rhs, 4);
+         uint32_t l2, r2;
+         std::memcpy(&l2, lhs + 3, 4);
+         std::memcpy(&r2, rhs + 3, 4);
+         return (l == r) & (l2 == r2);
+      }
+      else if constexpr (Count == 6) {
+         uint32_t l, r;
+         std::memcpy(&l, lhs, 4);
+         std::memcpy(&r, rhs, 4);
+         uint16_t l2, r2;
+         std::memcpy(&l2, lhs + 4, 2);
+         std::memcpy(&r2, rhs + 4, 2);
+         return (l == r) & (l2 == r2);
+      }
+      else if constexpr (Count == 5) {
+         uint32_t l, r;
+         std::memcpy(&l, lhs, 4);
+         std::memcpy(&r, rhs, 4);
+         return (l == r) & (lhs[4] == rhs[4]);
       }
       else if constexpr (Count == 4) {
-         uint32_t v[2];
-         std::memcpy(v, lhs, Count);
-         std::memcpy(v + 1, rhs, Count);
-         return v[0] == v[1];
+         uint32_t l, r;
+         std::memcpy(&l, lhs, 4);
+         std::memcpy(&r, rhs, 4);
+         return l == r;
       }
       else if constexpr (Count == 3) {
-         uint32_t v[2]{}; // must default initialize
-         std::memcpy(v, lhs, Count);
-         std::memcpy(v + 1, rhs, Count);
-         return v[0] == v[1];
+         uint16_t l, r;
+         std::memcpy(&l, lhs, 2);
+         std::memcpy(&r, rhs, 2);
+         return (l == r) & (lhs[2] == rhs[2]);
       }
       else if constexpr (Count == 2) {
-         uint16_t v[2];
-         std::memcpy(v, lhs, Count);
-         std::memcpy(v + 1, rhs, Count);
-         return v[0] == v[1];
+         uint16_t l, r;
+         std::memcpy(&l, lhs, 2);
+         std::memcpy(&r, rhs, 2);
+         return l == r;
       }
       else if constexpr (Count == 1) {
          return *lhs == *rhs;
       }
-      else {
+      else if constexpr (Count == 0) {
          return true;
+      }
+   }
+
+   template <size_t N>
+   consteval auto bytes_to_unsigned_type() noexcept
+   {
+      if constexpr (N == 1) {
+         return uint8_t{};
+      }
+      else if constexpr (N == 2) {
+         return uint16_t{};
+      }
+      else if constexpr (N == 4) {
+         return uint32_t{};
+      }
+      else if constexpr (N == 8) {
+         return uint64_t{};
+      }
+      else {
+         return;
+      }
+   }
+
+   template <size_t N>
+   using unsigned_bytes_t = std::decay_t<decltype(bytes_to_unsigned_type<N>())>;
+
+   template <const std::string_view& Str, size_t N>
+      requires(N <= 8)
+   consteval auto pack()
+   {
+      using T = unsigned_bytes_t<N>;
+      T v{};
+      for (size_t i = 0; i < N; ++i) {
+         v |= (static_cast<T>(uint8_t(Str[i])) << ((i % 8) * 8));
+      }
+      return v;
+   }
+
+   template <const std::string_view& Str, size_t N>
+      requires(N > 8)
+   consteval auto pack()
+   {
+      constexpr auto chunks = N / 8;
+      std::array<uint64_t, ((chunks > 0) ? chunks + 1 : 1)> v{};
+      for (size_t i = 0; i < N; ++i) {
+         const auto chunk = i / 8;
+         v[chunk] |= (static_cast<uint64_t>(uint8_t(Str[i])) << ((i % 8) * 8));
+      }
+      return v;
+   }
+
+   template <const std::string_view& Str, size_t N>
+      requires(N <= 8)
+   consteval auto pack_buffered()
+   {
+      using T = unsigned_bytes_t<N>;
+      T v{};
+      for (size_t i = 0; i < Str.size(); ++i) {
+         v |= (static_cast<T>(uint8_t(Str[i])) << ((i % 8) * 8));
+      }
+      return v;
+   }
+
+   template <const std::string_view& Str, size_t N = Str.size()>
+   GLZ_ALWAYS_INLINE bool comparitor(const auto* other) noexcept
+   {
+      if constexpr (N == 8) {
+         static constexpr auto packed = pack<Str, 8>();
+         uint64_t in;
+         std::memcpy(&in, other, 8);
+         return (in == packed);
+      }
+      else if constexpr (N == 7) {
+         static constexpr auto packed = pack_buffered<Str, 8>();
+         uint64_t in{};
+         std::memcpy(&in, other, 7);
+         return (in == packed);
+      }
+      else if constexpr (N == 6) {
+         static constexpr auto packed = pack_buffered<Str, 8>();
+         uint64_t in{};
+         std::memcpy(&in, other, 6);
+         return (in == packed);
+      }
+      else if constexpr (N == 5) {
+         static constexpr auto packed = pack<Str, 4>();
+         uint32_t in;
+         std::memcpy(&in, other, 4);
+         return (in == packed) & (Str[4] == other[4]);
+      }
+      else if constexpr (N == 4) {
+         static constexpr auto packed = pack<Str, 4>();
+         uint32_t in;
+         std::memcpy(&in, other, 4);
+         return (in == packed);
+      }
+      else if constexpr (N == 3) {
+         static constexpr auto packed = pack<Str, 2>();
+         uint16_t in;
+         std::memcpy(&in, other, 2);
+         return (in == packed) & (Str[2] == other[2]);
+      }
+      else if constexpr (N == 2) {
+         static constexpr auto packed = pack<Str, 2>();
+         uint16_t in;
+         std::memcpy(&in, other, 2);
+         return (in == packed);
+      }
+      else if constexpr (N == 1) {
+         return Str[0] == other[0];
+      }
+      else if constexpr (N == 0) {
+         return true;
+      }
+      else {
+         // Clang and GCC optimize this extremely well for constexpr std::string_view
+         // Packing data can create more binary on GCC
+         // The other cases probably aren't needed as compiler explorer shows them optimized equally well as memcmp
+         return 0 == std::memcmp(Str.data(), other, N);
       }
    }
 

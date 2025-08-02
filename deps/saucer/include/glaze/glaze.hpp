@@ -32,9 +32,13 @@
 
 #pragma once
 
-#include "glaze/binary.hpp"
-#include "glaze/binary/beve_to_json.hpp"
+#include "glaze/base64/base64.hpp"
+#include "glaze/beve.hpp"
+#include "glaze/beve/beve_to_json.hpp"
 #include "glaze/csv.hpp"
 #include "glaze/file/file_ops.hpp"
+#include "glaze/file/read_directory.hpp"
+#include "glaze/file/write_directory.hpp"
 #include "glaze/json.hpp"
 #include "glaze/record/recorder.hpp"
+#include "glaze/stencil/stencil.hpp"
